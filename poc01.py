@@ -17,8 +17,6 @@ PCやスマートフォンなどはデバイス自体が画面を持っている
 
 
 
-### んーなんかおかしいな ###
-
 !pip install networkx matplotlib pandas
 !pip install plotly
 
@@ -44,7 +42,7 @@ def extract_libraries(base_path, limit):
                     return libraries
 
 # # 2. 依存性の関係性取得
-def get_dependencies_linux(library):
+def get_dep_linux(library):
     try:
         result = subprocess.run(['ldd', library], capture_output=True, text=True)
         dependencies = []
@@ -58,39 +56,50 @@ def get_dependencies_linux(library):
         print(f"エラーが発生しました: {e}")
         return []
 
-# 3. 依存関係を使用頻度で重みづけて可視化 ===> ???
+# 3. 依存関係を重みづけて可視化 ===> ???
 def create_sankey_diagram(dependencies):
     # 使用頻度をカウントする辞書
     usage_count = defaultdict(int)
+    # defaultdict は、Python の標準ライブラリ collections に含まれる辞書の一種である。ここでは、整数をデフォルト値として持つ辞書を作成。
+    # これにより、キーが存在しない場合に自動的に 0 が返されるため、カウントを簡単に行える。
 
     # 依存関係をカウント
     for lib, deps in dependencies.items():
         for dep in deps:
             usage_count[dep] += 1
+    print(lib, deps)
 
-    # 左側のノード（ライブラリ）を使用頻度でソート
-    lib_usage_count = {lib: len(deps) for lib, deps in dependencies.items()}
-    sorted_libs = sorted(lib_usage_count.items(), key=lambda x: x[1], reverse=True)
+    # サンキー図のリンクデータを初期化
+    source, target, value = [], [], []
+
+    # 対象共有ライブラリの他ライブラリへの依存度(個数)をカウントし、ソート
+    sorted_libs = sorted(dependencies.items(), key=lambda item: len(item[1]), reverse=True)
+    # dependencies という辞書（ライブラリとその依存関係のリストを持つデータ構造）から、すべてのライブラリとその依存関係のペアを取得したのち、依存関係の数に基づいて並べ替える
+    # key 引数： ソートの基準を指定するために用いる = どのようにアイテムを比較して並べ替えるか
+    # lambda関数： pythonにおいて簡単な関数を表現する無名関数。構文「lambda 引数: 戻り値」
+    # item： item は、dependencies.items() から取得した各ライブラリとその依存関係のペアのタプル。item[0]=ライブラリ, item[1]=依存関係パーツ
     sorted_lib_labels = [lib for lib, _ in sorted_libs]
+    # リスト内表記：構文 new_list = [exp for item in iterable]  exp=追加内容, iterable=リストやタプルなど反復可能なオブジェクト。新しいリストを作成する際に便利！
+    # '_' は、Pythonで「使わない変数」を示すための慣習的な名前
+    # ---> まとめると、新規 sorted_lib_labelsというリストを sorted_libs(list) という従来のリストの中からlibraryのインデックス、つまりitem[0]だけを繰り返して作成する
+    #      = つまり!! リストから特定のインデックスの項目のみ取り出して新しいリストに作り替えるということをやっている。
 
-    # 右側のノード（依存関係）を使用頻度でソート
-    sorted_deps = sorted(usage_count.items(), key=lambda x: x[1], reverse=True)
+    # 被対象構成ライブラリの対象ライブラリへの依存度(個数)をカウントし、ソート
+    sorted_deps = sorted(usage_count.items(), key=lambda item: item[1], reverse=True)
     sorted_dep_labels = [dep for dep, _ in sorted_deps]
 
-    source = []
-    target = []
-    value = []
-
-    # ソートされた依存関係に基づいてサンキー図のデータを構築
-    for lib, deps in dependencies.items():
-        for dep in deps:
+    # ソートされた依存関係に基づいてサンキー図の対象ライブラリ(node)と被依存ライブラリ(node)をつなぐedgeを作成
+    for lib in sorted_lib_labels:
+        for dep in dependencies[lib]:
             if dep in sorted_dep_labels:
                 source_index = sorted_lib_labels.index(lib)  # 左側のノードのインデックス
                 target_index = len(sorted_lib_labels) + sorted_dep_labels.index(dep)  # 右側のノードのインデックス
                 source.append(source_index)
                 target.append(target_index)
-                value.append(usage_count[dep])  # 使用頻度を重みとして設定
+                value.append(1)  # edgeの太さに影響する'重み'として付与したいものがある場合、ここにappend
 
+    # 注意！ #
+    # ↑で頑張ってソートしたはいいが、サンキー図のノードの配置は依存関係の構造によって決定するため、視覚的には昇順に見えないことがあるらしい...。
 
     # サンキー図の作成
     fig = go.Figure(data=[go.Sankey(
@@ -105,6 +114,31 @@ def create_sankey_diagram(dependencies):
             target=target,
             value=value,
         ))])
+  
+    # レイアウトの設定
+    fig.update_layout(
+    title_text="Library Dependency Sankey Diagram (Weighted by Usage Frequency)",
+    font_size=10,
+    height=3500,  # 高さを指定
+    width=1800    # 幅を指定
+)
+
+    # サンキー図の表示 or htmlとして保存
+    #fig.show()
+    plot(fig, filename='sankey_diagram.html', auto_open=True)
+
+
+# メイン処理
+if __name__ == "__main__": 
+    base_path = "/usr/local/lib"
+    libraries = extract_libraries(base_path, limit=150)
+    
+    dependencies = {}
+    for library in libraries:
+        deps = get_dep_linux(library)
+        dependencies[library] = deps
+
+    create_sankey_diagram(dependencies)
 
 # def create_sankey_diagram(dependencies):
 #     # ノードのラベルを作成
